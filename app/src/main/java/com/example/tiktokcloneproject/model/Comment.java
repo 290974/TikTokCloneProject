@@ -51,6 +51,34 @@ public class Comment {
         return replyIds;
     }
 
+    public void setCommentId(String commentId) {
+        this.commentId = commentId;
+    }
+
+    public void setVideoId(String videoId) {
+        this.videoId = videoId;
+    }
+
+    public void setAuthorId(String authorId) {
+        this.authorId = authorId;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public void setTotalLikes(int totalLikes) {
+        this.totalLikes = totalLikes;
+    }
+
+    public void setTotalReplies(int totalReplies) {
+        this.totalReplies = totalReplies;
+    }
+
+    public void setReplyIds(ArrayList<String> replyIds) {
+        this.replyIds = replyIds;
+    }
+
     public Map<String, Object> toMap() {
         HashMap<String, Object> result = new HashMap<>();
         result.put("commentId", commentId);

@@ -3,6 +3,7 @@ package com.example.tiktokcloneproject.activity;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -35,15 +36,29 @@ public class SignupChoiceActivity extends Activity implements View.OnClickListen
 
     @Override
     public void onClick(View view) {
-        if(view.getId() == btnChoicePhone.getId()) {
-            Intent intent = new Intent(SignupChoiceActivity.this, PhoneSignupActivity.class);
+        int id = view.getId();
+
+        // 1. 手机注册按钮 -> 跳转到评论区
+        if(id == btnChoicePhone.getId()) {
+            Log.d("TEST_FLOW", "尝试进入 CommentActivity");
+            Intent intent = new Intent(SignupChoiceActivity.this, CommentActivity.class);
             startActivity(intent);
         }
-        if(view.getId() == btnChoiceEmail.getId()) {
-            Intent intent = new Intent(SignupChoiceActivity.this, EmailSignupActivity.class);
+
+        // 2. 邮箱注册按钮 -> 跳转到 Profile 页面
+        if(id == btnChoiceEmail.getId()) {
+            Log.d("TEST_FLOW", "尝试进入 ProfileActivity");
+
+            // --- 核心改动：极致简化跳转，先不传任何 Extra 数据 ---
+            Intent intent = new Intent(SignupChoiceActivity.this, ProfileActivity.class);
+
+            // 加上这一行：确保在跳转前，当前 Activity 不会自作主张 finish
+            // 如果你的 Base 类里有 finish 的逻辑，这里可以防止它运行
             startActivity(intent);
         }
-        if(view.getId() == txvAlt.getId()) {
+
+        // 3. 底部文字 -> 原样保留
+        if(id == txvAlt.getId()) {
             Intent intent = new Intent(SignupChoiceActivity.this, SigninChoiceActivity.class);
             startActivity(intent);
         }

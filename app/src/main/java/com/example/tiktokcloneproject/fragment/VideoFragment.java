@@ -72,7 +72,21 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
     @Override
     public void onPause() {
         super.onPause();
+        Log.d("LIFECYCLE_DEBUG", "onPause: 页面切到后台，尝试暂停视频");
+        if (videoAdapter != null) {
+            // 使用你代码里已有的逻辑，暂停当前位置的视频
+            videoAdapter.pauseVideo(videoAdapter.getCurrentPosition());
+        }
+    }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        Log.d("LIFECYCLE_DEBUG", "onResume: 页面重新回到前台");
+        if (videoAdapter != null) {
+            // 自动恢复当前位置的播放
+            videoAdapter.playVideo(videoAdapter.getCurrentPosition());
+        }
     }
 
     @Override
@@ -96,6 +110,24 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
         videos = new ArrayList<>();
         videoAdapter = new VideoAdapter(context, videos);
         VideoAdapter.setUser(user);
+
+        // --- 插入点：在 setAdapter 之前 ---
+        Video test1 = new Video();
+        test1.setTitle("测试视频 1：如果你能看到这个文字");
+        test1.setVideoUri("https://www.w3schools.com/html/mov_bbb.mp4");// 这是一个公用的 mp4 测试链接
+        test1.setAuthorId("test_user_01");
+        test1.setVideoId("id_001"); // <--- 补上这一行，防止第 310 行崩掉
+
+        Video test2 = new Video();
+        test2.setTitle("测试视频 2：ViewPager2 翻页测试");
+        test2.setVideoUri("https://www.w3schools.com/html/movie.mp4");
+        test2.setAuthorId("test_user_02");
+        test2.setVideoId("id_002"); // <--- 同理，补上这一行
+
+// 把假数据加入列表
+        videos.add(test1);
+        videos.add(test2);
+
         viewPager2.setAdapter(videoAdapter);
         viewPager2.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
@@ -133,12 +165,13 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
             }
         });
 
-        loadVideos();
+//        loadVideos();
         return layout;
     }
 
     @Override public void onStart() {
         super.onStart();
+        Log.d("LIFECYCLE_DEBUG", "onStart: 视频页面变得可见");
     }
 
     @Override

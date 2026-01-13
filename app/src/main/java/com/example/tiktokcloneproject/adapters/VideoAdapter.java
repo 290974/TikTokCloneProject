@@ -129,7 +129,8 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     @NonNull
     @Override
     public VideoViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-       return new VideoViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.video_container, parent, false ));
+        Log.d("ADAPTER_TEST", "onCreateViewHolder 被调用了");
+        return new VideoViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.video_container, parent, false ));
     }
 
     @Override
@@ -138,6 +139,7 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
 //        currentPosition = position;
         holder.setVideoObjects(videos.get(position));
         videoViewHolders.add(position, holder);
+        Log.d("ADAPTER_TEST", "onBindViewHolder 绑定了位置：" + position);
     }
 
     public void updateCurrentPosition(int pos) {
@@ -150,7 +152,14 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     }
 
     public void pauseVideo(int position) {
-        videoViewHolders.get(position).pauseVideo();
+        if (videoViewHolders != null && position >= 0 && position < videoViewHolders.size()) {
+            VideoViewHolder holder =videoViewHolders.get(position);
+            if (holder != null) {
+                holder.pauseVideo();
+            }
+        }else {
+            Log.w("FIX", "pauseVideo: 忽略越界操作 position=" + position);
+        }
     }
 
     public void playVideo(int position) {

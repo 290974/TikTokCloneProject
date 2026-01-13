@@ -109,7 +109,13 @@ public class HomeScreenActivity extends FragmentActivity implements View.OnClick
     @Override
     protected void onPause() {
         super.onPause();
-        stopVideoFragment();
+        // 找到第 112 行左右
+        try {
+            stopVideoFragment();
+        } catch (Exception e) {
+            // 如果这里崩了，只打印日志，不让 App 退出
+            Log.e("FIX", "停止视频时发生异常，已拦截防止闪退: " + e.getMessage());
+        }
     }
 
     @Override

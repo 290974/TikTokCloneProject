@@ -1,38 +1,42 @@
 {
   "project_info": {
-    "project_number": "YOUR_PROJECT_NUMBER",
-    "firebase_url": "https://YOUR_FIREBASE_URL.firebaseio.com",
-    "project_id": "YOUR_PROJECT_ID",
-    "storage_bucket": "YOUR_STORAGE_BUCKET.appspot.com"
+    "project_number": "1010058194568",
+    "firebase_url": "https://ttkclonetest-default-rtdb.firebaseio.com",
+    "project_id": "ttkclonetest",
+    "storage_bucket": "ttkclonetest.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "YOUR_APP_ID",
+        "mobilesdk_app_id": "1:1010058194568:android:85f2bb91f1d2a2d36f393d",
         "android_client_info": {
-          "package_name": "YOUR_PACKAGE_NAME"
+          "package_name": "com.example.tiktokcloneproject"
         }
       },
       "oauth_client": [
         {
-          "client_id": "YOUR_CLIENT_ID_1",
+          "client_id": "1010058194568-hbqovn2gp46lkbse12c2s8j76u8176v3.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "YOUR_PACKAGE_NAME",
-            "certificate_hash": "YOUR_CERTIFICATE_HASH_1"
+            "package_name": "com.example.tiktokcloneproject",
+            "certificate_hash": "28ef6b065c87f07d41b7c06b0a0fdd4ffdb85985"
           }
+        },
+        {
+          "client_id": "1010058194568-5mthnhgopg3h5d4qfche3uoai0u95h48.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "YOUR_API_KEY"
+          "current_key": "AIzaSyBuVVQon3IgWavn2dGUoUZ6ZZG-f-Sibfg"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "YOUR_CLIENT_ID_3",
+              "client_id": "1010058194568-5mthnhgopg3h5d4qfche3uoai0u95h48.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

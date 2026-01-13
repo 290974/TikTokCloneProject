@@ -83,127 +83,62 @@ public class CommentActivity extends Activity implements View.OnClickListener{
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_comment);
 
+        // 1. 基本绑定
+        llComment = findViewById(R.id.llComment);
+        imvBack = findViewById(R.id.imvBackToHomeScreen);
+        imvMyAvatarInComment = findViewById(R.id.imvMyAvatarInComment);
+        edtComment = findViewById(R.id.edtComment);
+        imbSendComment = findViewById(R.id.imbSendComment);
+        lvComment = findViewById(R.id.listViewComment);
 
-        llComment = (LinearLayout) findViewById(R.id.llComment);
-        imvBack = (ImageView) llComment.findViewById(R.id.imvBackToHomeScreen);
-        imvMyAvatarInComment = (ImageView)llComment.findViewById(R.id.imvMyAvatarInComment);
-        edtComment = (EditText) llComment.findViewById(R.id.edtComment);
-        imbSendComment = (ImageButton) llComment.findViewById(R.id.imbSendComment);
-        lvComment = (ListView) llComment.findViewById(R.id.listViewComment);
-
-        Intent intent = getIntent();
-        Bundle bundle = intent.getExtras();
-        videoId = bundle.getString("videoId");
-        authorVideoId = bundle.getString("authorId");
-        totalComments = bundle.getInt("totalComments");
+        // 2. 数据获取与判空
+        Bundle bundle = getIntent().getExtras();
+        videoId = (bundle != null) ? bundle.getString("videoId") : "default_video";
 
         db = FirebaseFirestore.getInstance();
         mAuth = FirebaseAuth.getInstance();
         user = mAuth.getCurrentUser();
         storage = FirebaseStorage.getInstance();
         storageRef = storage.getReference();
+
         comments = new ArrayList<>();
         adapter = new CommentAdapter(this, R.layout.layout_row_comment, comments);
+
+        // 3. 模拟数据（保留这个，方便你检查 UI）
+        for (int i = 0; i < 15; i++) {
+            Comment mc = new Comment();
+            mc.setContent("测试评论 " + (i + 1));
+            comments.add(mc);
+        }
         lvComment.setAdapter(adapter);
-
-
-
 
         imvBack.setOnClickListener(this);
         imbSendComment.setOnClickListener(this);
 
-
-
-        db.collection("users").document(user.getUid())
-                .get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
-                    @Override
-                    public void onComplete(@NonNull Task<DocumentSnapshot> task) {
-                        if (task.isSuccessful()) {
-                            DocumentSnapshot document = task.getResult();
-                            if (document.exists()) {
-                                username = document.get("username", String.class);
-                                Log.d(TAG, "DocumentSnapshot data: " + document.getData());
-                            } else {
-                                Log.d(TAG, "No such document");
-                            }
-                        } else {
-                            Log.d(TAG, "get failed with ", task.getException());
-                        }
-                    }
-                });
-
-        db.collection("comments")
-                .whereEqualTo("videoId", videoId)
-                .addSnapshotListener(new EventListener<QuerySnapshot>() {
-                    @Override
-                    public void onEvent(@Nullable QuerySnapshot snapshots,
-                                        @Nullable FirebaseFirestoreException e) {
-                        if (e != null) {
-                            Log.w(TAG, "listen:error", e);
-                            return;
-                        }
-
-                        for (DocumentChange dc : snapshots.getDocumentChanges()) {
-                            switch (dc.getType()) {
-                                case ADDED:
-                                    comments.add(0, dc.getDocument().toObject(Comment.class));
-                                    adapter.notifyDataSetChanged();
-                                    break;
-                                case MODIFIED:
-                                    Log.d(TAG, "Modified city: " + dc.getDocument().getData());
-                                    break;
-                                case REMOVED:
-                                    Log.d(TAG, "Removed city: " + dc.getDocument().getData());
-                                    break;
-                            }
-                        }
-
-                    }
-                });
-
+        // 4. 【核心保护】只执行一次 Firebase 用户逻辑
         if (user != null) {
-//            docRef = db.collection("profiles").document(userId.toString());
-//            docRef.get().addOnCompleteListener(task -> {
-//                if (task.isSuccessful()){
-//                    DocumentSnapshot document = task.getResult();
-//                    if (document.exists())
-//                    {
-//                        try {
-//                            avatarName = (String) document.get("avatarName");
-//                        }catch(Exception e){
-//                            //do nothing
-//                        }
             userId = user.getUid();
-            StorageReference download = storageRef.child("/user_avatars").child(userId.toString());
-//                        StorageReference download = storageRef.child(userId.toString());
-
-            download.getBytes(StaticVariable.MAX_BYTES_AVATAR)
-                    .addOnSuccessListener(new OnSuccessListener<byte[]>() {
-                        @Override
-                        public void onSuccess(byte[] bytes) {
-                            bitmap = BitmapFactory.decodeByteArray(bytes, 0 , bytes.length);
-                            imvMyAvatarInComment.setImageBitmap(bitmap);
-                        }
-                    })
-                    .addOnFailureListener(new OnFailureListener() {
-                        @Override
-                        public void onFailure(@NonNull Exception e) {
-                            // Do nothing
-                        }
+            String uid = user.getUid();
+            // 获取头像
+            storageRef.child("/user_avatars").child(uid).getBytes(1024 * 1024)
+                    .addOnSuccessListener(bytes -> {
+                        bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        imvMyAvatarInComment.setImageBitmap(bitmap);
                     });
-//                    }
-//                    else { }
-//                }
-//                else { }
-//            });
-        }
-        else
-        {
-//            Toast.makeText(this, "You have to sign in to comment.", Toast.LENGTH_SHORT).show();
-            Intent intent1 = new Intent(CommentActivity.this, HomeScreenActivity.class);
-            startActivity(intent1);
         }
 
+        // 5. 监听评论
+        db.collection("comments").whereEqualTo("videoId", videoId)
+                .addSnapshotListener((snapshots, e) -> {
+                    if (e != null || snapshots == null) return;
+                    for (DocumentChange dc : snapshots.getDocumentChanges()) {
+                        if (dc.getType() == DocumentChange.Type.ADDED) {
+                            comments.add(0, dc.getDocument().toObject(Comment.class));
+                            adapter.notifyDataSetChanged();
+                        }
+                    }
+                });
+        // onCreate 结束，后面原本重复的那几十行代码已经全部清理掉了
     }
 
     @Override

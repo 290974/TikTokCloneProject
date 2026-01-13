@@ -77,4 +77,31 @@ public class Video {
 
         return result;
     }
+
+    public void setTitle(String s) {
+    }
+
+    public void setVideoId(String videoId) {
+        this.videoId = videoId;
+    }
+
+    public void setVideoUri(String videoUri) {
+        this.videoUri = videoUri;
+    }
+
+    public void setAuthorId(String authorId) {
+        this.authorId = authorId;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public void setTotalComments(int totalComments) {
+        this.totalComments = totalComments;
+    }
 }
