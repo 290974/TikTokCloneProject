@@ -135,11 +135,14 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
 
     @Override
     public void onBindViewHolder(@NonNull VideoViewHolder holder, int position) {
-//        Toast.makeText(context, "" + position, Toast.LENGTH_SHORT).show();
-//        currentPosition = position;
-        holder.setVideoObjects(videos.get(position));
-        videoViewHolders.add(position, holder);
-        Log.d("ADAPTER_TEST", "onBindViewHolder 绑定了位置：" + position);
+        Video video = videos.get(position);
+        holder.setVideoObjects(video);
+
+        // 不要用 add(position, holder)，改用这种方式管理：
+        if (!videoViewHolders.contains(holder)) {
+            videoViewHolders.add(holder);
+        }
+        Log.d("ADAPTER_TEST", "onBindViewHolder 绑定了位置：" + position + " 用户名：" + video.getUsername());
     }
 
     public void updateCurrentPosition(int pos) {
@@ -163,11 +166,21 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     }
 
     public void playVideo(int position) {
-        videoViewHolders.get(position).playVideo();
+        // 增加安全性判断：检查 videoViewHolders 是否为空，以及索引是否越界
+        if (videoViewHolders != null && position >= 0 && position < videoViewHolders.size()) {
+            VideoViewHolder holder = videoViewHolders.get(position);
+            if (holder != null) {
+                holder.playVideo();
+            }
+        } else {
+            Log.w("FIX", "playVideo: 忽略无效位置 position=" + position);
+        }
     }
 
     public void updateWatchCount(int position) {
-        videoViewHolders.get(position).updateWatchCount();
+        if (videoViewHolders != null && position >= 0 && position < videoViewHolders.size()) {
+            videoViewHolders.get(position).updateWatchCount();
+        }
     }
 
     @Override
@@ -317,6 +330,7 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             showAvt(imvAvatar, videoObject.getAuthorId());
 
 
+            /* 暂时注释掉这段，防止在断网时覆盖本地 JSON 数据
             db.collection("videos").document(videoId)
                    .addSnapshotListener(new EventListener<DocumentSnapshot>() {
                         @Override
@@ -353,6 +367,8 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
 
                         }
                     });
+
+             */
             if (userId != authorId) {
                 imvMore.setVisibility(View.GONE);
             }

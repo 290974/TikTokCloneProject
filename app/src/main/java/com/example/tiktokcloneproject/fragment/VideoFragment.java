@@ -34,6 +34,10 @@ import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.storage.StorageReference;
 
 import java.util.ArrayList;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 public class VideoFragment extends Fragment implements View.OnClickListener {
     private Context context = null;
@@ -73,9 +77,13 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
     public void onPause() {
         super.onPause();
         Log.d("LIFECYCLE_DEBUG", "onPause: 页面切到后台，尝试暂停视频");
-        if (videoAdapter != null) {
-            // 使用你代码里已有的逻辑，暂停当前位置的视频
-            videoAdapter.pauseVideo(videoAdapter.getCurrentPosition());
+
+        // 同样的逻辑：只有在有数据时才尝试暂停
+        if (videoAdapter != null && videos != null && !videos.isEmpty()) {
+            int currentPos = videoAdapter.getCurrentPosition();
+            if (currentPos >= 0 && currentPos < videos.size()) {
+                videoAdapter.pauseVideo(currentPos);
+            }
         }
     }
 
@@ -83,72 +91,52 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
     public void onResume() {
         super.onResume();
         Log.d("LIFECYCLE_DEBUG", "onResume: 页面重新回到前台");
-        if (videoAdapter != null) {
-            // 自动恢复当前位置的播放
-            videoAdapter.playVideo(videoAdapter.getCurrentPosition());
+
+        // --- 核心修复逻辑 ---
+        // 1. 检查 videoAdapter 是否已初始化（防止 NullPointerException）
+        // 2. 检查 videos 列表是否已经塞入了数据（防止 IndexOutOfBoundsException）
+        if (videoAdapter != null && videos != null && !videos.isEmpty()) {
+            int currentPos = videoAdapter.getCurrentPosition();
+
+            // 3. 再次确认当前索引是否在列表合法范围内
+            if (currentPos >= 0 && currentPos < videos.size()) {
+                videoAdapter.playVideo(currentPos);
+                Log.d("LIFECYCLE_DEBUG", "成功恢复播放位置：" + currentPos);
+            }
+        } else {
+            // 如果数据还没加载好，代码会走到这里并静默退出，而不再是直接崩溃
+            Log.w("LIFECYCLE_DEBUG", "onResume: 数据尚未准备就绪，跳过播放");
         }
     }
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-// inflate res/layout_blue.xml to make GUI holding a TextView and a ListView
+        // 保持你原有的布局加载方式
         LinearLayout layout = (LinearLayout) inflater.inflate(R.layout.fragment_video, null);
         tvVideo = (TextView) layout.findViewById(R.id.tvVideo);
-
-
-
-
 
         mAuth = FirebaseAuth.getInstance();
         user = mAuth.getCurrentUser();
         db = FirebaseFirestore.getInstance();
 
-
-
-/////////////////////////////////////////////////////////////////////////
         viewPager2 = layout.findViewById(R.id.viewPager);
         videos = new ArrayList<>();
-        videoAdapter = new VideoAdapter(context, videos);
+        videoAdapter = new VideoAdapter(context, videos); // 变量名是 videoAdapter
         VideoAdapter.setUser(user);
 
-        // --- 插入点：在 setAdapter 之前 ---
-        Video test1 = new Video();
-        test1.setTitle("测试视频 1：如果你能看到这个文字");
-        test1.setVideoUri("https://www.w3schools.com/html/mov_bbb.mp4");// 这是一个公用的 mp4 测试链接
-        test1.setAuthorId("test_user_01");
-        test1.setVideoId("id_001"); // <--- 补上这一行，防止第 310 行崩掉
-
-        Video test2 = new Video();
-        test2.setTitle("测试视频 2：ViewPager2 翻页测试");
-        test2.setVideoUri("https://www.w3schools.com/html/movie.mp4");
-        test2.setAuthorId("test_user_02");
-        test2.setVideoId("id_002"); // <--- 同理，补上这一行
-
-// 把假数据加入列表
-        videos.add(test1);
-        videos.add(test2);
-
         viewPager2.setAdapter(videoAdapter);
+
+        // --- 这里调用本地加载逻辑 ---
+        loadVideosFromLocal();
+
         viewPager2.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
-            @Override
-            public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
-                super.onPageScrolled(position, positionOffset, positionOffsetPixels);
-
-            }
-
             @Override
             public void onPageSelected(int position) {
                 super.onPageSelected(position);
                 videoAdapter.pauseVideo(videoAdapter.getCurrentPosition());
                 videoAdapter.playVideo(position);
                 videoAdapter.updateWatchCount(position);
-                Log.e("Selected_Page", String.valueOf(videoAdapter.getCurrentPosition()));
                 videoAdapter.updateCurrentPosition(position);
-            }
-
-            @Override
-            public void onPageScrollStateChanged(int state) {
-                super.onPageScrollStateChanged(state);
             }
         });
         viewPager2.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
@@ -226,6 +214,43 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
 
                     }
                 });
+    }
+
+    private void loadVideosFromLocal() {
+        try {
+            InputStream is = getContext().getAssets().open("videos.json");
+            int size = is.available();
+            byte[] buffer = new byte[size];
+            is.read(buffer);
+            is.close();
+
+            String jsonString = new String(buffer, StandardCharsets.UTF_8);
+            JSONArray jsonArray = new JSONArray(jsonString);
+
+            for (int i = 0; i < jsonArray.length(); i++) {
+                JSONObject obj = jsonArray.getJSONObject(i);
+
+                Video video = new Video();
+                video.setVideoId(obj.optString("videoId"));
+                video.setAuthorId(obj.optString("authorId"));
+                video.setUsername(obj.optString("username"));
+                video.setDescription(obj.optString("description"));
+                video.setVideoUri(obj.optString("videoUri"));
+                video.setTotalLikes(obj.optInt("totalLikes", 0));
+                video.setTotalComments(obj.optInt("totalComments", 0));
+
+                // 关键点：这里改为 videoAdapter
+                videoAdapter.addVideoObject(video);
+            }
+
+            // 关键点：这里改为 videoAdapter
+            videoAdapter.notifyDataSetChanged();
+            Log.d("LOCAL_JSON", "数据加载完成，共计: " + jsonArray.length() + " 条记录");
+
+        } catch (Exception e) {
+            Log.e("LOCAL_JSON", "读取 JSON 失败: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
 }
