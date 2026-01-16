@@ -21,6 +21,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
+import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -36,6 +37,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.MediaController;
 import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -116,6 +118,16 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
         this.videos = videos;
         videoViewHolders = new ArrayList<>();
         currentPosition = 0;
+
+        // 1. 尝试从 Firebase 获取当前真实登录的用户
+        // 即使你还没写登录界面，如果之前有登录记录，这行能自动找回身份
+        VideoAdapter.user = FirebaseAuth.getInstance().getCurrentUser();
+
+        // 2. 方案 B 的核心：如果用户确实没登录，我们在日志里记录，
+        // 但不要在这里拦截，拦截逻辑应该交给 handleTymClick 去做“游客模式”兼容
+        if (VideoAdapter.user == null) {
+            android.util.Log.d("DEBUG_TAG", "当前为游客模式：双击将仅触发本地动画");
+        }
     }
 
     public static void setUser(FirebaseUser user) {
@@ -226,6 +238,8 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
 
         Handler handler = new Handler();
 
+        private GestureDetector gestureDetector;
+
         public VideoViewHolder(@NonNull View itemView) {
             super(itemView);
             videoView = itemView.findViewById(R.id.videoView);
@@ -251,12 +265,90 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             imvVolume.setOnClickListener(this);
             imvShare.setOnClickListener(this);
 
-            videoView.setOnTouchListener(new OnSwipeTouchListener(itemView.getContext()){
+            // 1. 初始化手势识别（单击/双击）
+            gestureDetector = new GestureDetector(itemView.getContext(), new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onSingleTapConfirmed(MotionEvent e) {
+                    togglePlayPause(); // 单击：暂停/播放
+                    return true;
+                }
+
+                @Override
+                public boolean onDoubleTap(MotionEvent e) {
+                    handleDoubleTap(e); // 双击：红心动画
+                    return true;
+                }
+            });
+
+            // 2. 将手势识别嵌入到 Touch 监听中
+            videoView.setOnTouchListener(new OnSwipeTouchListener(itemView.getContext()) {
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    // 关键：先让 GestureDetector 检查是不是单击或双击
+                    gestureDetector.onTouchEvent(event);
+                    // 然后再让原来的滑动逻辑（左滑进主页）继续运行
+                    return super.onTouch(v, event);
+                }
+
                 @Override
                 public void onSwipeLeft() {
                     moveToProfile(videoView.getContext(), authorId);
                 }
             });
+
+            // 注意：videoView.setOnClickListener(this) 建议删掉，
+            // 因为单击事件现在由 onSingleTapConfirmed 接管了。
+            // 其他按钮（头像、评论等）的 setOnClickListener 保持不变。
+        }
+        private void togglePlayPause() {
+            if (isPlaying) {
+                pauseVideo();
+                isPlaying = false;
+                imvAppear.setImageResource(R.drawable.ic_baseline_play_arrow_24);
+                imvAppear.setVisibility(View.VISIBLE);
+            } else {
+                playVideo();
+                isPlaying = true;
+                imvAppear.setVisibility(View.GONE);
+            }
+        }
+        private void handleDoubleTap(MotionEvent e) {
+            // 1. 如果还没点赞，触发点赞逻辑（变红、数字加1）
+            if (!isLiked) {
+                handleTymClick(videoView); // 调用你原来的点赞逻辑
+            }
+
+            // 2. 在点击位置弹出红心动画
+            showHeartAnimation(e);
+        }
+        private void showHeartAnimation(MotionEvent e) {
+            // 1. 动态创建一个 ImageView
+            final ImageView heart = new ImageView(context);
+            heart.setImageResource(R.drawable.ic_fill_favorite); // 使用你的红色实心心形
+
+            // 2. 设置红心的尺寸（比如 100x100 像素）
+            int size = 300;
+            RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(size, size);
+
+            // 3. 计算红心位置（让红心的中心点正好在手指点击处）
+            params.leftMargin = (int) e.getX() - (size / 2);
+            params.topMargin = (int) e.getY() - (size / 2);
+            heart.setLayoutParams(params);
+
+            // 4. 将红心添加到最外层容器中（请确保你 XML 最外层是 RelativeLayout 且有 ID）
+            RelativeLayout rootLayout = itemView.findViewById(R.id.video_root_layout); // 替换为你 XML 里的最外层 ID
+            rootLayout.addView(heart);
+
+            // 5. 设置属性动画
+            // 放大 + 漂浮 + 消失
+            heart.animate()
+                    .scaleX(1.2f)
+                    .scaleY(1.2f)
+                    .alpha(0f)
+                    .translationY(-300f)
+                    .setDuration(800)
+                    .withEndAction(() -> rootLayout.removeView(heart)) // 动画结束必须移除，释放内存
+                    .start();
         }
 
         public void playVideo() {
@@ -301,7 +393,7 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             tvTitle.setText("@" + videoObject.getUsername());
             txvDescription.setText(videoObject.getDescription());
             tvComment.setText(String.valueOf(videoObject.getTotalComments()));
-//            tvFavorites.setText(String.valueOf(videoObject.getTotalLikes()));
+            tvFavorites.setText(String.valueOf(videoObject.getTotalLikes()));
 //            videoView.setVideoPath(videoObject.getVideoUri());
 
             MediaItem mediaItem = MediaItem.fromUri(videoObject.getVideoUri());
@@ -400,7 +492,7 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
                 return;
             }
             if (view.getId() == imvMore.getId()) {
-                if (authorId.equals(user.getUid())) {
+                if (user != null && authorId.equals(user.getUid())) {
                     Intent intent = new Intent(view.getContext(), DeleteVideoSettingActivity.class);
                     Bundle bundle = new Bundle();
                     bundle.putString("videoId", videoId);
@@ -415,8 +507,9 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             }
             if (view.getId() == tvFavorites.getId()) {
                 handleTymClick(view);
-
+                return;
             }
+            /*
             if (view.getId() == videoView.getId()) {
                 numberOfClick++;
                 float currentVolume = exoPlayer.getVolume();
@@ -453,6 +546,8 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
                             }
                     }, 500);
                 }
+
+             */
             if (view.getId() == imvVolume.getId()) {
                 float currentVolume = exoPlayer.getVolume();
                 boolean isMuted = (currentVolume == 0);
@@ -638,69 +733,57 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
         }
 
         private void handleTymClick(View view) {
-            if(user == null) {
-                showNiceDialogBox(view.getContext(), null, null);
-                return;
+            // 【第一步：本地 UI 立即反馈】
+            // 这一步决定了用户看到的瞬间变化
+            if (!isLiked) {
+                totalLikes += 1; // 还没点赞 -> +1
+            } else {
+                if (totalLikes > 0) totalLikes -= 1; // 已经点赞 -> -1
             }
 
-            setFillLiked(!isLiked);
+            isLiked = !isLiked; // 切换状态
+            setFillLiked(isLiked); // 更新红心颜色和显示的文字
 
+            // 【第二步：游客模式拦截】
+            if (user == null) {
+                Log.d(TAG, "游客点赞：仅更新本地UI，不写入数据库");
+                return; // 这里直接结束，不再执行后面的 Firebase 代码
+            }
 
+            // 【第三步：数据库同步】（只有登录用户才会走到这里）
 
+            // 1. 同步视频的总点赞数
+            updateTotalLike(totalLikes);
 
+            // 2. 同步具体的点赞用户记录 (docRef)
             docRef.get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
                 @Override
                 public void onComplete(@NonNull Task<DocumentSnapshot> task) {
                     if (task.isSuccessful()) {
                         DocumentSnapshot document = task.getResult();
-                        if (document.exists()) {
-                            Log.d(TAG, "DocumentSnapshot data: " + document.getData());
+                        if (document != null && document.exists()) {
                             if (document.contains(userId)) {
-//                                if (totalLikes!=0){
-//                                    totalLikes -= 1;
-//                                }
-
+                                // 已经点赞过，现在要取消
                                 Map<String, Object> updates = new HashMap<>();
                                 updates.put(userId, FieldValue.delete());
                                 docRef.update(updates);
-
-
-
-                            }
-                            else {
-                                //totalLikes += 1;
-
+                            } else {
+                                // 没点赞过，现在要加上
                                 Map<String, Object> updates = new HashMap<>();
                                 updates.put(userId, null);
-                                db.collection("likes").document(videoId).update(updates);
+                                docRef.update(updates); // 修正：建议用 docRef 直接更新
                                 notifyLike();
-
                             }
-
                         } else {
-                            //totalLikes += 1;
-
+                            // 整个文档都不存在，新建
                             Map<String, Object> newID = new HashMap<>();
                             newID.put(userId, null);
                             docRef.set(newID);
-
                             notifyLike();
                         }
-
-                    } else {
-                        Log.d(TAG, "get failed with ", task.getException());
                     }
                 }
             });
-
-            if(isLiked) {
-                totalLikes -= 1;
-            }
-             else {
-                 totalLikes += 1;
-            }
-            isLiked = !isLiked;
-            updateTotalLike(totalLikes);
         }
 
         private void updateTotalLike(int totalLikes) {
