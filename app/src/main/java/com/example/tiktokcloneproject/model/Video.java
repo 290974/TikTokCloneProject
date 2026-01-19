@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Video {
     private String videoId, videoUri, authorId, description, username;
     private int totalLikes, totalComments;
+    private boolean isUserLiked = false;
 
     public Video() {
     }
@@ -103,5 +104,13 @@ public class Video {
 
     public void setTotalComments(int totalComments) {
         this.totalComments = totalComments;
+    }
+
+    public boolean isUserLiked() {
+        return isUserLiked;
+    }
+
+    public void setUserLiked(boolean userLiked) {
+        isUserLiked = userLiked;
     }
 }

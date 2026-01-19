@@ -18,6 +18,7 @@ import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.example.tiktokcloneproject.R;
@@ -76,14 +77,8 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
     @Override
     public void onPause() {
         super.onPause();
-        Log.d("LIFECYCLE_DEBUG", "onPause: 页面切到后台，尝试暂停视频");
-
-        // 同样的逻辑：只有在有数据时才尝试暂停
-        if (videoAdapter != null && videos != null && !videos.isEmpty()) {
-            int currentPos = videoAdapter.getCurrentPosition();
-            if (currentPos >= 0 && currentPos < videos.size()) {
-                videoAdapter.pauseVideo(currentPos);
-            }
+        if (videoAdapter != null) {
+            videoAdapter.pauseAllVideo();
         }
     }
 
@@ -126,17 +121,36 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
 
         viewPager2.setAdapter(videoAdapter);
 
+        // 🚩 Day 11 新增：设置预加载数量为 1 (预加载前后各一页)
+        viewPager2.setOffscreenPageLimit(1);
+        // 🚩 Day 11 新增：由于 ViewPager2 默认不开启预加载策略，需要手动开启
+        // 这能显著减少由于网速慢导致的“状态 2”黑屏时间
+        viewPager2.getChildAt(0).setOverScrollMode(View.OVER_SCROLL_NEVER); // 顺便去掉滑到顶的阴影
+
+        if (viewPager2.getChildAt(0) instanceof RecyclerView) {
+            RecyclerView rv = (RecyclerView) viewPager2.getChildAt(0);
+            // 设置缓存大小，防止频繁创建/销毁离屏太近的 ViewHolder
+            rv.setItemViewCacheSize(3);
+        }
+
         // --- 这里调用本地加载逻辑 ---
-        loadVideosFromLocal();
+        // 🚩 Day 11：模拟异步网络请求
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            loadVideosFromLocal();
+            // 如果有进度条，在这里隐藏：progressBar.setVisibility(View.GONE);
+        }, 1500); // 模拟 1.5 秒网络延迟
 
         viewPager2.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
             public void onPageSelected(int position) {
                 super.onPageSelected(position);
-                videoAdapter.pauseVideo(videoAdapter.getCurrentPosition());
-                videoAdapter.playVideo(position);
-                videoAdapter.updateWatchCount(position);
-                videoAdapter.updateCurrentPosition(position);
+
+                videoAdapter.pauseAllVideo();
+
+                viewPager2.post(() -> {
+                    videoAdapter.playVideo(position);
+                    videoAdapter.updateCurrentPosition(position);
+                });
             }
         });
         viewPager2.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
@@ -148,7 +162,7 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
             @Override
             public void onViewDetachedFromWindow(View view) {
 //                Log.i("position", viewPager2.getVerticalScrollbarPosition() + "");
-               videoAdapter.pauseVideo(videoAdapter.getCurrentPosition());
+//               videoAdapter.pauseVideo(videoAdapter.getCurrentPosition());
 
             }
         });
@@ -245,11 +259,31 @@ public class VideoFragment extends Fragment implements View.OnClickListener {
 
             // 关键点：这里改为 videoAdapter
             videoAdapter.notifyDataSetChanged();
-            Log.d("LOCAL_JSON", "数据加载完成，共计: " + jsonArray.length() + " 条记录");
 
+            // 🚩 Day 11 新增：确保刚进页面时，位置 0 的视频能被正确识别
+            viewPager2.post(() -> {
+                if (videoAdapter.getItemCount() > 0) {
+                    viewPager2.setCurrentItem(0, false); // 强制定位到 0
+                    videoAdapter.playVideo(0);
+                    videoAdapter.updateCurrentPosition(0);
+                }
+            });
         } catch (Exception e) {
             Log.e("LOCAL_JSON", "读取 JSON 失败: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    // 在 VideoFragment 类中新增一个方法
+    public void onUserStatusChanged(FirebaseUser newUser) {
+        this.user = newUser;
+        VideoAdapter.setUser(newUser); // 更新静态变量
+
+        // 🚩 关键：只刷新当前正在显示的那个 Item，让它显示出点赞红心
+        if (videoAdapter != null) {
+            int currentPos = viewPager2.getCurrentItem();
+            videoAdapter.notifyItemChanged(currentPos);
+            Log.d("DAY_11", "用户登录状态变更，刷新当前视频 UI");
         }
     }
 

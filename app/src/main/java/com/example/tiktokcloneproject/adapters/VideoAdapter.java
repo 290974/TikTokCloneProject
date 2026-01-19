@@ -109,9 +109,15 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     private static FirebaseUser user = null;
     private List<VideoViewHolder> videoViewHolders;
     private int currentPosition;
+    private int activePosition = 0; // 🚩 新增：记录当前正处于屏幕中央的位置
     int numberOfClick = 0;
     float volume;
     boolean isPlaying = true;
+
+    public void setActivePosition(int position) {
+        this.activePosition = position;
+        playVideo(position);
+    }
 
     public VideoAdapter(Context context, List<Video> videos) {
         this.context = context;
@@ -148,13 +154,16 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     @Override
     public void onBindViewHolder(@NonNull VideoViewHolder holder, int position) {
         Video video = videos.get(position);
-        holder.setVideoObjects(video);
 
-        // 不要用 add(position, holder)，改用这种方式管理：
+        // 🚩 关键：先确保 holder 被加入列表，再执行 setVideoObjects
         if (!videoViewHolders.contains(holder)) {
             videoViewHolders.add(holder);
         }
-        Log.d("ADAPTER_TEST", "onBindViewHolder 绑定了位置：" + position + " 用户名：" + video.getUsername());
+
+        // 这一步会执行你刚改好的 shouldPlay 逻辑
+        holder.setVideoObjects(video);
+
+        Log.d("ADAPTER_TEST", "onBindViewHolder 绑定了位置：" + position);
     }
 
     public void updateCurrentPosition(int pos) {
@@ -167,26 +176,45 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     }
 
     public void pauseVideo(int position) {
-        if (videoViewHolders != null && position >= 0 && position < videoViewHolders.size()) {
-            VideoViewHolder holder =videoViewHolders.get(position);
-            if (holder != null) {
+        if (videoViewHolders == null) return;
+
+        // 🚩 同样使用“遍历查找”逻辑
+        for (VideoViewHolder holder : videoViewHolders) {
+            // 只有当 Holder 的实际绑定位置等于我们要暂停的位置时，才执行操作
+            if (holder.getBindingAdapterPosition() == position) {
                 holder.pauseVideo();
+                Log.d("FIX_LOG", "成功找到并暂停位置: " + position);
+                return;
             }
-        }else {
-            Log.w("FIX", "pauseVideo: 忽略越界操作 position=" + position);
+        }
+
+        // 如果没找到 Holder，说明该 View 可能已经被回收了，ExoPlayer 在 onViewRecycled 里已经被 release，
+        // 所以这种情况下不报错是正常的。
+        Log.w("FIX_LOG", "pauseVideo: 内存中未找到位置 " + position + " 的 Holder，无需手动暂停");
+    }
+
+    public void pauseAllVideo() {
+        if (videoViewHolders != null) {
+            for (VideoViewHolder holder : videoViewHolders) {
+                if (holder != null) {
+                    holder.pauseVideo();
+                }
+            }
         }
     }
 
     public void playVideo(int position) {
-        // 增加安全性判断：检查 videoViewHolders 是否为空，以及索引是否越界
-        if (videoViewHolders != null && position >= 0 && position < videoViewHolders.size()) {
-            VideoViewHolder holder = videoViewHolders.get(position);
-            if (holder != null) {
+        if (videoViewHolders == null) return;
+
+        // 🚩 关键修复：抛弃 get(position)，改用遍历匹配身份
+        for (VideoViewHolder holder : videoViewHolders) {
+            if (holder != null && holder.getBindingAdapterPosition() == position) {
                 holder.playVideo();
+                Log.d("ADAPTER_FIX", "【匹配成功】正在播放正确的位置: " + position);
+                return;
             }
-        } else {
-            Log.w("FIX", "playVideo: 忽略无效位置 position=" + position);
         }
+        Log.w("ADAPTER_FIX", "【匹配失败】内存中尚未找到位置 " + position + " 的 View");
     }
 
     public void updateWatchCount(int position) {
@@ -196,16 +224,23 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     }
 
     @Override
-    public void onViewAttachedToWindow(VideoViewHolder holder) {
-        holder.playVideo();
-        //isPlaying = true;
+    public void onViewAttachedToWindow(@NonNull VideoViewHolder holder) {
+        super.onViewAttachedToWindow(holder);
+        int pos = holder.getBindingAdapterPosition();
 
+        // 🚩 当 View 重新贴回屏幕时（比如滑回来）
+        // 检查它是不是那个“天选之子” (activePosition)
+        if (pos != RecyclerView.NO_POSITION && pos == activePosition) {
+            holder.playVideo();
+            Log.d("AUDIO_FIX", "ViewAttached: 强制唤醒当前活跃视频 " + pos);
+        }
     }
 
     @Override
     public void onViewDetachedFromWindow(VideoViewHolder holder) {
         holder.pauseVideo();
-        isPlaying = false;
+        Log.d("AUDIO_CONTROL", "Detached: 强制停止位置 " + holder.getAdapterPosition());
+//        isPlaying = false;
     }
 
 
@@ -213,6 +248,18 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
     @Override
     public int getItemCount() {
         return videos.size();
+    }
+
+    @Override
+    public void onViewRecycled(@NonNull VideoViewHolder holder) {
+        super.onViewRecycled(holder);
+        // 🚩 重要：当 ViewHolder 被回收时，彻底释放播放器，并从管理列表中移除
+        if (holder.exoPlayer != null) {
+            Log.d("MEMORY_CLEAN", "Recycling player at position: " + holder.getAdapterPosition());
+            holder.exoPlayer.release();
+            holder.exoPlayer = null;
+        }
+        videoViewHolders.remove(holder); // 防止列表无限增长
     }
 
 
@@ -396,15 +443,15 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             tvFavorites.setText(String.valueOf(videoObject.getTotalLikes()));
 //            videoView.setVideoPath(videoObject.getVideoUri());
 
-            MediaItem mediaItem = MediaItem.fromUri(videoObject.getVideoUri());
             if (exoPlayer != null) exoPlayer.release();
             exoPlayer = new ExoPlayer.Builder(videoView.getContext()).build();
             videoView.setPlayer(exoPlayer);
+
+            MediaItem mediaItem = MediaItem.fromUri(videoObject.getVideoUri());
             exoPlayer.addMediaItem(mediaItem);
             exoPlayer.setRepeatMode(exoPlayer.REPEAT_MODE_ONE);
+
             exoPlayer.prepare();
-            pauseVideo();
-            isPaused = true;
 
             authorId = videoObject.getAuthorId();
             videoId = videoObject.getVideoId();
@@ -415,52 +462,20 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             docRef = db.collection(LIKE_COLLECTION).document(videoId);
 //            setVideoViewListener(videoView, imvPause);
 
-            if(!userId.isEmpty()) {
-                setLikes(videoId, userId);
+            // 🚩 核心修复 1：从数据对象中提取点赞状态和总数
+            this.isLiked = videoObject.isUserLiked();
+            this.totalLikes = videoObject.getTotalLikes();
+
+            // 🚩 核心修复 2：强行刷新红心状态（解决复用导致的颜色残留）
+            setFillLiked(this.isLiked);
+            tvFavorites.setText(String.valueOf(this.totalLikes));
+
+            if (userId != null && !userId.isEmpty()) {
+                setLikes(videoObject.getVideoId(), userId, videoObject);
             }
 
             showAvt(imvAvatar, videoObject.getAuthorId());
 
-
-            /* 暂时注释掉这段，防止在断网时覆盖本地 JSON 数据
-            db.collection("videos").document(videoId)
-                   .addSnapshotListener(new EventListener<DocumentSnapshot>() {
-                        @Override
-                        public void onEvent(@Nullable DocumentSnapshot document,
-                                            @Nullable FirebaseFirestoreException e) {
-                            if (e != null) {
-                                Log.w(ContentValues.TAG, "listen:error", e);
-//                                Toast.makeText(context, "kkkk", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-
-                            Integer totalLikes = document.get("totalLikes", Integer.class);
-                            Integer totalComments = document.get("totalComments", Integer.class);
-                            Log.d("totalLike", totalLikes + "");
-                            tvFavorites.setText(String.valueOf(totalLikes));
-                            tvComment.setText(String.valueOf(totalComments));
-                        }
-                    });
-
-
-            db.collection("profiles").document(authorId)
-                    .addSnapshotListener(new EventListener<DocumentSnapshot>() {
-                        @Override
-                        public void onEvent(@Nullable DocumentSnapshot document,
-                                            @Nullable FirebaseFirestoreException e) {
-                            if (e != null) {
-                                Log.w(ContentValues.TAG, "listen:error", e);
-//                                Toast.makeText(context, "kkkk", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-
-                            tvTitle.setText("@"+document.get("username", String.class));
-
-
-                        }
-                    });
-
-             */
             if (userId != authorId) {
                 imvMore.setVisibility(View.GONE);
             }
@@ -509,45 +524,7 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
                 handleTymClick(view);
                 return;
             }
-            /*
-            if (view.getId() == videoView.getId()) {
-                numberOfClick++;
-                float currentVolume = exoPlayer.getVolume();
-                boolean isMuted = (currentVolume == 0);
-                    Handler handler = new Handler();
-                    handler.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (numberOfClick == 1) {
-                                if (isPlaying) {
-                                    pauseVideo();
-                                    isPlaying = false;
-                                    imvAppear.setImageResource(R.drawable.ic_baseline_play_arrow_24);
-                                    imvAppear.setVisibility(View.VISIBLE);
-                                } else {
-                                    playVideo();
-                                    isPlaying = true;
-                                    imvAppear.setVisibility(View.GONE);
-                                }
-//                                if (isMuted) {
-//                                    exoPlayer.setVolume(volume);
-//                                    appearImage(R.drawable.ic_baseline_volume_up_24);
-//                                } else {
-//                                    volume = exoPlayer.getVolume();
-//                                    exoPlayer.setVolume(0);
-//                                    appearImage(R.drawable.ic_baseline_volume_off_24);
-//                                }
-                            } else if (numberOfClick == 2) {
-                                handleTymClick(view);
-                                    imvAppear.setVisibility(View.GONE);
-                                    appearImage(R.drawable.ic_fill_favorite);
-                                }
-                            numberOfClick = 0;
-                            }
-                    }, 500);
-                }
 
-             */
             if (view.getId() == imvVolume.getId()) {
                 float currentVolume = exoPlayer.getVolume();
                 boolean isMuted = (currentVolume == 0);
@@ -586,25 +563,37 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
             dialog.setContentView(R.layout.share_video_layout);
 
             Button btnCopyURL = dialog.findViewById(R.id.btnCopyURL);
+            Button btnSystemShare = dialog.findViewById(R.id.btnSystemShare);
             TextView txvCancelInSharedPlace = dialog.findViewById(R.id.txvCancelInSharedPlace);
 
 
-            btnCopyURL.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
+            btnCopyURL.setOnClickListener(v -> {
                     ClipboardManager clipboard = (ClipboardManager) view.getContext().getSystemService(Context.CLIPBOARD_SERVICE);
                     ClipData clip = ClipData.newPlainText("toptop-link", "http://video.toptoptoptop.com/" + videoId.toString());
                     clipboard.setPrimaryClip(clip);
                     Toast.makeText(view.getContext(), "Video link has been saved to clipboard", Toast.LENGTH_SHORT).show();
-                }
+                    dialog.dismiss();
             });
 
-            txvCancelInSharedPlace.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    dialog.cancel();
-                }
-            });
+            if (btnSystemShare != null) {
+                btnSystemShare.setOnClickListener(v -> {
+                    Intent sendIntent = new Intent();
+                    sendIntent.setAction(Intent.ACTION_SEND);
+                    // 构造分享的文字内容
+                    String shareBody = "我在 TopTop 发现了一个有趣的视频，快来看看！\n" +
+                            "视频地址：http://video.toptoptoptop.com/" + videoId;
+                    sendIntent.putExtra(Intent.EXTRA_TEXT, shareBody);
+                    sendIntent.setType("text/plain");
+
+                    // 唤起原生选择器 (Intent Chooser)
+                    Intent shareIntent = Intent.createChooser(sendIntent, "分享视频到...");
+                    v.getContext().startActivity(shareIntent);
+                    dialog.dismiss();
+                });
+            }
+
+            txvCancelInSharedPlace.setOnClickListener(v -> dialog.cancel());
+
             dialog.show();
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -637,11 +626,19 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
 
 
         private void moveToProfile(Context context, String authorId) {
+            pauseVideo();
             isPlaying = false;
+            imvAppear.setImageResource(R.drawable.ic_baseline_play_arrow_24);
+            imvAppear.setVisibility(View.VISIBLE);
+
+            int pos = getBindingAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION) return;
+            Video video = videos.get(pos);
+
             Intent intent=new Intent(context, ProfileActivity.class);
-            Bundle bundle = new Bundle();
-            bundle.putString("id", authorId);
-            intent.putExtras(bundle);
+            intent.putExtra("author_id", authorId);
+            intent.putExtra("author_name", video.getUsername());
+
             context.startActivity(intent);
         }
 
@@ -668,7 +665,7 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
 
 
 
-        private void setLikes (String videoId, String userId){
+        private void setLikes (String videoId, String userId, Video videoObject){
             docRef.get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
                 @Override
                 public void onComplete(@NonNull Task<DocumentSnapshot> task) {
@@ -676,17 +673,13 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
                         DocumentSnapshot document = task.getResult();
                         if (document.exists()) {
                             Log.d(TAG, "DocumentSnapshot data: " + document.getData());
-                            if (document.contains(userId)) {
-                                setFillLiked(true);
-                                isLiked = true;
-                            }
-                            else {
-                                setFillLiked(false);
-                                isLiked = false;
-                            }
+                            isLiked = document.contains(userId);
+                            videoObject.setUserLiked(isLiked);
+                            setFillLiked(isLiked);
                         } else {
-                            setFillLiked(false);
                             isLiked = false;
+                            videoObject.setUserLiked(false);
+                            setFillLiked(false);
                             Log.d(TAG, "No such document");
                         }
                     } else {
@@ -733,15 +726,23 @@ public class VideoAdapter extends RecyclerView.Adapter<VideoAdapter.VideoViewHol
         }
 
         private void handleTymClick(View view) {
-            // 【第一步：本地 UI 立即反馈】
-            // 这一步决定了用户看到的瞬间变化
-            if (!isLiked) {
-                totalLikes += 1; // 还没点赞 -> +1
-            } else {
-                if (totalLikes > 0) totalLikes -= 1; // 已经点赞 -> -1
-            }
+            // 🚩 找到当前绑定的数据对象
+            int pos = getBindingAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION) return;
+            Video currentVideo = videos.get(pos);
 
-            isLiked = !isLiked; // 切换状态
+            // 1. 逻辑计算
+            if (!isLiked) {
+                totalLikes += 1;
+            } else {
+                if (totalLikes > 0) totalLikes -= 1;
+            }
+            isLiked = !isLiked;
+
+            // 🚩 核心修复 3：同步更新数据源，这样滑走再滑回来，数据才是对的
+            currentVideo.setUserLiked(isLiked);
+            currentVideo.setTotalLikes(totalLikes);
+
             setFillLiked(isLiked); // 更新红心颜色和显示的文字
 
             // 【第二步：游客模式拦截】

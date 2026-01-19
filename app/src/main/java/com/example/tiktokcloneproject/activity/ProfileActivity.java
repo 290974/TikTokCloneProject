@@ -88,21 +88,13 @@ public class ProfileActivity extends FragmentActivity implements View.OnClickLis
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_profile);
 
+        String intentUserId = getIntent().getStringExtra("author_id");
+        String intentUserName = getIntent().getStringExtra("author_name");
+
         // 【修改 1】先别管 Firebase，先检查本地 Auth 状态
         mAuth = FirebaseAuth.getInstance();
-        FirebaseUser currentUser = mAuth.getCurrentUser();
-
-        // 【修改 2】如果没登录，直接跳走，不要给 Firebase 报错的机会
-        if (currentUser == null) {
-            Log.e("FIX", "检测到未登录，直接跳转注册选择页");
-            Intent intent = new Intent(this, SignupChoiceActivity.class);
-            startActivity(intent);
-            finish(); // 关键：立即结束当前页面，防止报 SecurityException
-            return;
-        }
-
-        // --- 如果代码执行到这里，说明 user != null，再执行下面的绑定逻辑 ---
-        userId = currentUser.getUid();
+        user = mAuth.getCurrentUser(); // 注意：这里赋值给全局变量 user
+        db = FirebaseFirestore.getInstance();
 
         // --- 以下是原本的 View 绑定逻辑，保持不变 ---
         txvFollowing = (TextView) findViewById(R.id.text_following);
@@ -125,104 +117,92 @@ public class ProfileActivity extends FragmentActivity implements View.OnClickLis
         llFollowing.setOnClickListener(this);
         imvAvatarProfile.setOnClickListener(this); // 确保头像能点击
 
-        db = FirebaseFirestore.getInstance();
+        // 【核心修改 2】逻辑判断：我们在看谁的主页？
+        if (intentUserId != null) {
+            // 情况 A：从视频流跳转过来的（看别人）
+            userId = intentUserId;
+            txvUserName.setText("@" + intentUserName);
+            handleFollow(); // 显示 Follow 按钮
+        } else if (user != null) {
+            // 情况 B：直接点“我”进入的（看自己）
+            userId = user.getUid();
+            txvUserName.setText("@" + user.getDisplayName());
+            btnEditProfile.setVisibility(View.VISIBLE);
+        } else {
+            // 情况 C：没登录也没传值，跳转登录
+            startActivity(new Intent(this, SignupChoiceActivity.class));
+            finish();
+            return;
+        }
+
+        // --- 初始化 Firebase 相关数据（如果有网会加载，没网会静默） ---
         setLikes(userId);
         docRef = db.collection("profiles").document(userId);
         storage = FirebaseStorage.getInstance();
         storageReference = storage.getReference();
 
-        // --- 处理按钮状态 ---
-        if (user == null) {
-            handleFollow(); // 访客模式看别人
-        } else {
-            currentUserID = user.getUid();
-            if (userId.equals(currentUserID)) {
-                // 自己的主页
-                edtBio.setVisibility(View.VISIBLE);
-                btnEditProfile.setVisibility(View.VISIBLE);
-                btnEditProfile.setOnClickListener(this);
-
-                // 恢复你原本的 Bio TextWatcher 逻辑
-                oldBioText = edtBio.getText().toString();
-                // (此处省略那段 TextWatcher 代码，你可以保留你原本写的那些)
-            } else {
-                handleFollow(); // 登录状态看别人
-            }
-        }
-
         // --- 初始化九宫格 ---
         videoSummaries = new ArrayList<VideoSummary>();
         GridLayoutManager gridLayoutManager = new GridLayoutManager(this, 3);
         recVideoSummary.setLayoutManager(gridLayoutManager);
-        recVideoSummary.addItemDecoration(new GridSpacingItemDecoration(3, 10, true));
         setVideoSummaries();
-    } // 替换到这一行为止
+
+        // 绑定返回按钮（确保布局里有这个 ID）
+        View btnBack = findViewById(R.id.btnBackProfile);
+        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
+    }
 
     boolean isFollowed = false;
 
     @Override
     public void onStart() {
         super.onStart();
-        Toast.makeText(this, "start", Toast.LENGTH_SHORT).show();
-        docRef.get().addOnCompleteListener(task -> {
-            if (task.isSuccessful()) {
-                DocumentSnapshot document = task.getResult();
-                if (document.exists()) {
-                    txvFollowing.setText(((Long)document.get("following")).toString());
-                    txvFollowers.setText(((Long)document.get("followers")).toString());
-                    txvLikes.setText(((Long)document.get("likes")).toString());
-                    txvUserName.setText("@" + document.getString(USERNAME_LABEL));
-//                        oldBioText = document.getString("bio");
-//                        edtBio.setText(oldBioText);
-
-                } else { }
-            } else { }
-        });
-    }
-
-    private void handleFollow() {
-        //bio cần set lại là text vỉew
-        btn = (Button) findViewById(R.id.button_follow);
-        btn.setVisibility(View.VISIBLE);
-
-        if (user != null) {
-            DocumentReference docRef = db.collection("profiles").document(currentUserID)
-                    .collection("following").document(userId);
-            docRef.get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
-                @Override
-                public void onComplete(Task<DocumentSnapshot> task) {
-                    if (task.isSuccessful()) {
-                        DocumentSnapshot document = task.getResult();
-                        if (document.exists()) {
-                            isFollowed = true;
-                            Log.d(TAG, "DocumentSnapshot data: " + document.getData());
-                            handleFollowed();
-                            notifyFollow();
-
-                        } else {
-                            Log.d(TAG, "No such document");
-                            isFollowed = false;
-                            handleUnfollowed();
-
-
+        if (docRef != null) {
+            docRef.get().addOnCompleteListener(task -> {
+                if (task.isSuccessful()) {
+                    DocumentSnapshot document = task.getResult();
+                    if (document.exists()) {
+                        txvFollowing.setText(((Long) document.get("following")).toString());
+                        txvFollowers.setText(((Long) document.get("followers")).toString());
+                        txvLikes.setText(((Long) document.get("likes")).toString());
+                        if (document.contains(USERNAME_LABEL)) {
+                            txvUserName.setText("@" + document.getString(USERNAME_LABEL));
                         }
-                    } else {
-                        Log.d(TAG, "get failed with ", task.getException());
                     }
                 }
             });
+        }
+    }
 
-        } else {
-            btn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    Intent intentMain = new Intent(ProfileActivity.this, MainActivity.class);
+    private void handleFollow() {
+        btn = (Button) findViewById(R.id.button_follow);
+        btn.setVisibility(View.VISIBLE);
 
-                    startActivity(intentMain);
+        // 🚩 修复：必须先判断 user 是否为空，否则 currentUserID = user.getUid() 会崩
+        if (user != null) {
+            currentUserID = user.getUid();
+            DocumentReference followRef = db.collection("profiles").document(currentUserID)
+                    .collection("following").document(userId);
+
+            followRef.get().addOnCompleteListener(task -> {
+                if (task.isSuccessful() && task.getResult() != null) {
+                    DocumentSnapshot document = task.getResult();
+                    if (document.exists()) {
+                        isFollowed = true;
+                        handleFollowed();
+                    } else {
+                        isFollowed = false;
+                        handleUnfollowed();
+                    }
                 }
             });
+        } else {
+            // 🚩 游客模式：点击关注按钮，引导去登录页
+            btn.setOnClickListener(v -> {
+                Intent intent = new Intent(ProfileActivity.this, SignupChoiceActivity.class);
+                startActivity(intent);
+            });
         }
-
     }
 
     public void notifyFollow() {
